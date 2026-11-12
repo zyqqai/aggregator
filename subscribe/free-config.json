@@ -1,5 +1,83 @@
 {
-    "sites": [],
+    "sites": [
+        {
+            "name": "freefq",
+            "subscribe": [
+                "https://raw.githubusercontent.com/freefq/free/master/v2"
+            ],
+            "push_to": [
+                "free"
+            ],
+            "check_alive": true,
+            "max_rate": 3.0
+        },
+        {
+            "name": "ripaojiedian",
+            "subscribe": [
+                "https://raw.githubusercontent.com/ripaojiedian/freenode/main/sub"
+            ],
+            "push_to": [
+                "free"
+            ],
+            "check_alive": true,
+            "max_rate": 3.0
+        },
+        {
+            "name": "aiboboxx",
+            "subscribe": [
+                "https://raw.githubusercontent.com/aiboboxx/v2rayfree/main/sub"
+            ],
+            "push_to": [
+                "free"
+            ],
+            "check_alive": true,
+            "max_rate": 3.0
+        },
+        {
+            "name": "nomorewalls",
+            "subscribe": [
+                "https://raw.githubusercontent.com/peasoft/NoMoreWalls/master/list.txt"
+            ],
+            "push_to": [
+                "free"
+            ],
+            "check_alive": true,
+            "max_rate": 3.0
+        },
+        {
+            "name": "pawdroid",
+            "subscribe": [
+                "https://raw.githubusercontent.com/Pawdroid/Free-servers/main/sub"
+            ],
+            "push_to": [
+                "free"
+            ],
+            "check_alive": true,
+            "max_rate": 3.0
+        },
+        {
+            "name": "ermaozi",
+            "subscribe": [
+                "https://raw.githubusercontent.com/ermaozi01/free_clash_vpn/main/subscribe/v2ray.txt"
+            ],
+            "push_to": [
+                "free"
+            ],
+            "check_alive": true,
+            "max_rate": 3.0
+        },
+        {
+            "name": "ssaggregator",
+            "subscribe": [
+                "https://raw.githubusercontent.com/mahdibland/ShadowsocksAggregator/master/Eternity"
+            ],
+            "push_to": [
+                "free"
+            ],
+            "check_alive": true,
+            "max_rate": 3.0
+        }
+    ],
     "crawl": {
         "enable": true,
         "exclude": "",
@@ -10,7 +88,6 @@
             "nodes": "crawledproxies"
         },
         "task": {
-            "rename": "🌀 {name}",
             "check_alive": true,
             "max_rate": 3.0
         },
@@ -29,73 +106,15 @@
             "exclude": "(?i)(test|demo|example|template|awesome|docs?)",
             "exclude_repos": []
         },
-        "pages": [
-            {
-                "enable": true,
-                "url": [
-                    "https://raw.githubusercontent.com/freefq/free/master/v2",
-                    "https://raw.githubusercontent.com/ripaojiedian/freenode/main/sub",
-                    "https://raw.githubusercontent.com/aiboboxx/v2rayfree/main/sub",
-                    "https://raw.githubusercontent.com/peasoft/NoMoreWalls/master/list.txt"
-                ],
-                "paged": false,
-                "include": "",
-                "exclude": "",
-                "task": {
-                    "rename": "🌐 {name}",
-                    "check_alive": true
-                },
-                "push_to": [
-                    "free"
-                ]
-            }
-        ],
         "scripts": [
             {
                 "plugin": "v2rayfree",
                 "enable": true,
+                "persist": "pluginstate",
+                "emails": [
+                    "free@node.pub"
+                ],
                 "task": {
-                    "rename": "🎁 {name}",
-                    "push_to": [
-                        "free"
-                    ]
-                }
-            },
-            {
-                "plugin": "v2rayse",
-                "enable": true,
-                "task": {
-                    "rename": "🧩 {name}",
-                    "push_to": [
-                        "free"
-                    ]
-                }
-            },
-            {
-                "plugin": "gitforks",
-                "enable": true,
-                "task": {
-                    "rename": "🍴 {name}",
-                    "push_to": [
-                        "free"
-                    ]
-                }
-            },
-            {
-                "plugin": "tempairport",
-                "enable": true,
-                "task": {
-                    "rename": "⏳ {name}",
-                    "push_to": [
-                        "free"
-                    ]
-                }
-            },
-            {
-                "plugin": "dynamic",
-                "enable": true,
-                "task": {
-                    "rename": "🛰️ {name}",
                     "push_to": [
                         "free"
                     ]
@@ -141,6 +160,11 @@
                 "username": "zyqqai",
                 "gist_id": "6dd682ceb71086a543387147fd4a0613",
                 "filename": "crawledproxies.txt"
+            },
+            "pluginstate": {
+                "username": "zyqqai",
+                "gist_id": "6dd682ceb71086a543387147fd4a0613",
+                "filename": "pluginstate.json"
             }
         }
     }
