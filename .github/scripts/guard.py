@@ -446,6 +446,52 @@ def cmd_verify() -> int:
     return 0
 
 
+def repo_name() -> str:
+    value = (os.environ.get("GITHUB_REPOSITORY") or "").strip()
+    return value or "zyqqai/aggregator"
+
+
+def put_repo_file(repo: str, path: str, content: str, message: str) -> None:
+    url = f"https://api.github.com/repos/{repo}/contents/{path}"
+    payload: dict[str, object] = {"message": message, "content": base64.b64encode(content.encode("utf-8")).decode("ascii")}
+    try:
+        info = request(url)
+        payload["sha"] = info["sha"]
+        old = base64.b64decode(info.get("content", "")).decode("utf-8", "ignore")
+        if old == content:
+            print(f"[guard] {path} 无变化，跳过提交")
+            return
+    except Exception:  # noqa: BLE001
+        pass
+    request(url, method="PUT", payload=payload)
+    print(f"[guard] 已提交 {path}")
+
+
+def cmd_publish() -> int:
+    """把订阅文件同步一份到仓库，供 jsDelivr / statically 这类国内可达的 CDN 读取。
+    Gist 本身没问题，但 gist.githubusercontent.com 在国内几乎不可直连。"""
+    repo = repo_name()
+    count = 0
+    for item in storage_items().values():
+        filename = item.get("filename", "")
+        if not kind_of(filename):
+            continue
+        try:
+            content = fetch_gist(item["gist_id"]).get(filename, "")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[guard] 读取 {filename} 失败：{exc}")
+            continue
+        if not content.strip():
+            continue
+        try:
+            put_repo_file(repo, f"subscribe/output/{filename}", content, f"chore: publish {filename}")
+            count += 1
+        except Exception as exc:  # noqa: BLE001
+            print(f"[guard] 发布 {filename} 失败：{exc}")
+    print(f"[guard] 发布完成，{count} 个文件")
+    return 0
+
+
 def cmd_restore() -> int:
     if not os.path.isdir(BACKUP_DIR):
         print("[guard] 没有可用的备份，Gist 保持原样")
@@ -478,6 +524,7 @@ def main() -> int:
         "backup": cmd_backup,
         "normalize": cmd_normalize,
         "postprocess": cmd_postprocess,
+        "publish": cmd_publish,
         "verify": cmd_verify,
         "restore": cmd_restore,
     }
