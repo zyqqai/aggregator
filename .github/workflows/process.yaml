@@ -64,6 +64,18 @@ jobs:
         run: python -u subscribe/process.py -s "$SUBSCRIBE_CONF" --overwrite -n 64 -t 6000
         timeout-minutes: 75
 
+      - name: Dump generated files (debug)
+        if: always()
+        run: |
+          for f in free-clash.yaml free-v2ray.txt free-singbox.json; do
+            url="https://gist.githubusercontent.com/zyqqai/6dd682ceb71086a543387147fd4a0613/raw/${f}?t=$(date +%s)"
+            echo "=== $f ==="
+            curl -s "$url" -o "/tmp/${f}" || true
+            wc -c "/tmp/${f}" || true
+            head -c 400 "/tmp/${f}" || true
+            echo
+          done
+
       - name: Verify generated subscriptions
         run: python .github/scripts/guard.py verify
 
