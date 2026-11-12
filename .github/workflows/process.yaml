@@ -64,6 +64,9 @@ jobs:
         run: python -u subscribe/process.py -s "$SUBSCRIBE_CONF" --overwrite -n 64 -t 6000
         timeout-minutes: 75
 
+      - name: Normalize clash output
+        run: python .github/scripts/guard.py normalize
+
       - name: Verify generated subscriptions
         run: python .github/scripts/guard.py verify
 
