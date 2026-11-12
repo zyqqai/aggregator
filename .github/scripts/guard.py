@@ -2,9 +2,10 @@
 """Gist 订阅守卫：备份 / 校验 / 回滚。
 
 用法：
-    python .github/scripts/guard.py backup    # 运行前备份 Gist 里已有的订阅文件
-    python .github/scripts/guard.py verify    # 运行后校验新生成的内容是否可用
-    python .github/scripts/guard.py restore   # 失败时用备份覆盖回去，保留上一次结果
+    python .github/scripts/guard.py backup     # 运行前备份 Gist 里已有的订阅文件
+    python .github/scripts/guard.py normalize  # 修正 Clash 里的非标准 !<str> 标签
+    python .github/scripts/guard.py verify     # 运行后校验新生成的内容是否可用
+    python .github/scripts/guard.py restore    # 失败时用备份覆盖回去，保留上一次结果
 
 仅依赖标准库，Gist 凭据从环境变量 PUSH_TOKEN 读取。
 """
@@ -42,20 +43,32 @@ def storage_items() -> dict[str, dict[str, str]]:
 
 def request(url: str, method: str = "GET", payload: dict | None = None) -> dict:
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
-    req = urllib.request.Request(
-        url,
-        data=data,
-        method=method,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token()}",
-            "Content-Type": "application/json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "aggregator-guard",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    last = None
+    for attempt in range(3):
+        req = urllib.request.Request(
+            url,
+            data=data,
+            method=method,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {token()}",
+                "Content-Type": "application/json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "User-Agent": "aggregator-guard",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            last = exc
+            # 409 通常是并发写同一个 gist，稍等重试即可
+            if exc.code not in (409, 429, 500, 502, 503):
+                raise
+        except urllib.error.URLError as exc:
+            last = exc
+        time.sleep(2 + attempt * 2)
+    raise last if last else RuntimeError("request failed")
 
 
 def fetch_gist(gist_id: str) -> dict[str, str]:
@@ -74,8 +87,7 @@ def fetch_gist(gist_id: str) -> dict[str, str]:
 def cmd_backup() -> int:
     os.makedirs(BACKUP_DIR, exist_ok=True)
     saved = 0
-    for item in storage_items().values():
-        gist_id = item["gist_id"]
+    for gist_id in {item["gist_id"] for item in storage_items().values()}:
         try:
             files = fetch_gist(gist_id)
         except Exception as exc:  # noqa: BLE001
@@ -126,6 +138,45 @@ def count_singbox(text: str) -> int:
         return 0
     outbounds = data.get("outbounds") or []
     return sum(1 for item in outbounds if isinstance(item, dict) and item.get("type") not in ("selector", "urltest", "direct", "block", "dns"))
+
+
+def cmd_normalize() -> int:
+    """subconverter 会给数字型字符串加 `!<str>` 标签，这不是合法 YAML（Go/Python 解析器都会报错），
+    换成等价的 `!!str`，让 Clash / Mihomo 系列客户端都能正常解析。"""
+    try:
+        import yaml  # noqa: PLC0415
+    except ImportError:
+        print("[guard] 未安装 PyYAML，跳过 clash 规范化")
+        return 0
+
+    failed = False
+    for key, item in storage_items().items():
+        filename = item.get("filename", "")
+        if "clash" not in filename.lower():
+            continue
+        gist_id = item["gist_id"]
+        try:
+            content = fetch_gist(gist_id).get(filename, "")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[guard] 读取 {filename} 失败：{exc}")
+            failed = True
+            continue
+
+        fixed = content.replace("!<str>", "!!str")
+        try:
+            data = yaml.safe_load(fixed)
+            count = len(data.get("proxies") or []) if isinstance(data, dict) else len(data or [])
+        except Exception as exc:  # noqa: BLE001
+            print(f"[guard] {filename} 不是合法 YAML：{exc}")
+            failed = True
+            continue
+
+        if fixed != content:
+            request(f"{API}/{gist_id}", method="PATCH", payload={"files": {filename: {"content": fixed}}})
+            print(f"[guard] {filename} 已修正 !<str> 标签，YAML 解析出 {count} 个节点")
+        else:
+            print(f"[guard] {filename} 无需修正，YAML 解析出 {count} 个节点")
+    return 1 if failed else 0
 
 
 def kind_of(filename: str) -> str:
@@ -198,8 +249,7 @@ def cmd_restore() -> int:
         print("[guard] 没有可用的备份，Gist 保持原样")
         return 0
     restored = 0
-    for item in storage_items().values():
-        gist_id = item["gist_id"]
+    for gist_id in {item["gist_id"] for item in storage_items().values()}:
         payload_files = {}
         prefix = f"{gist_id}__"
         for name in os.listdir(BACKUP_DIR):
@@ -222,7 +272,7 @@ def cmd_restore() -> int:
 
 def main() -> int:
     action = sys.argv[1] if len(sys.argv) > 1 else ""
-    handlers = {"backup": cmd_backup, "verify": cmd_verify, "restore": cmd_restore}
+    handlers = {"backup": cmd_backup, "normalize": cmd_normalize, "verify": cmd_verify, "restore": cmd_restore}
     if action not in handlers:
         print(__doc__)
         return 2
