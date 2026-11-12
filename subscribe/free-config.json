@@ -1,0 +1,147 @@
+{
+    "sites": [],
+    "crawl": {
+        "enable": true,
+        "exclude": "",
+        "max_fails": 5,
+        "include_nodes": true,
+        "persist": {
+            "subscribe": "crawledsubs",
+            "nodes": "crawledproxies"
+        },
+        "task": {
+            "rename": "🌀 {name}",
+            "check_alive": true,
+            "max_rate": 3.0
+        },
+        "telegram": {
+            "enable": false,
+            "pages": 3,
+            "exclude": "",
+            "channels": {}
+        },
+        "github": {
+            "enable": true,
+            "pages": 2,
+            "push_to": [
+                "free"
+            ],
+            "exclude": "(?i)(test|demo|example|template|awesome|docs?)",
+            "exclude_repos": []
+        },
+        "pages": [
+            {
+                "enable": true,
+                "url": [
+                    "https://raw.githubusercontent.com/freefq/free/master/v2",
+                    "https://raw.githubusercontent.com/ripaojiedian/freenode/main/sub",
+                    "https://raw.githubusercontent.com/aiboboxx/v2rayfree/main/sub",
+                    "https://raw.githubusercontent.com/peasoft/NoMoreWalls/master/list.txt"
+                ],
+                "paged": false,
+                "include": "",
+                "exclude": "",
+                "task": {
+                    "rename": "🌐 {name}",
+                    "check_alive": true
+                },
+                "push_to": [
+                    "free"
+                ]
+            }
+        ],
+        "scripts": [
+            {
+                "plugin": "v2rayfree",
+                "enable": true,
+                "task": {
+                    "rename": "🎁 {name}",
+                    "push_to": [
+                        "free"
+                    ]
+                }
+            },
+            {
+                "plugin": "v2rayse",
+                "enable": true,
+                "task": {
+                    "rename": "🧩 {name}",
+                    "push_to": [
+                        "free"
+                    ]
+                }
+            },
+            {
+                "plugin": "gitforks",
+                "enable": true,
+                "task": {
+                    "rename": "🍴 {name}",
+                    "push_to": [
+                        "free"
+                    ]
+                }
+            },
+            {
+                "plugin": "tempairport",
+                "enable": true,
+                "task": {
+                    "rename": "⏳ {name}",
+                    "push_to": [
+                        "free"
+                    ]
+                }
+            },
+            {
+                "plugin": "dynamic",
+                "enable": true,
+                "task": {
+                    "rename": "🛰️ {name}",
+                    "push_to": [
+                        "free"
+                    ]
+                }
+            }
+        ]
+    },
+    "groups": {
+        "free": {
+            "emoji": true,
+            "list_only": true,
+            "targets": {
+                "clash": "free-clash",
+                "v2ray": "free-v2ray",
+                "singbox": "free-singbox"
+            }
+        }
+    },
+    "storage": {
+        "engine": "gist",
+        "items": {
+            "free-clash": {
+                "username": "zyqqai",
+                "gist_id": "6dd682ceb71086a543387147fd4a0613",
+                "filename": "free-clash.yaml"
+            },
+            "free-v2ray": {
+                "username": "zyqqai",
+                "gist_id": "6dd682ceb71086a543387147fd4a0613",
+                "filename": "free-v2ray.txt"
+            },
+            "free-singbox": {
+                "username": "zyqqai",
+                "gist_id": "6dd682ceb71086a543387147fd4a0613",
+                "filename": "free-singbox.json"
+            },
+            "crawledsubs": {
+                "username": "zyqqai",
+                "gist_id": "6dd682ceb71086a543387147fd4a0613",
+                "filename": "crawledsubs.json"
+            },
+            "crawledproxies": {
+                "username": "zyqqai",
+                "gist_id": "6dd682ceb71086a543387147fd4a0613",
+                "filename": "crawledproxies.txt"
+            }
+        }
+    }
+}
