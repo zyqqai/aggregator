@@ -1,35 +1,42 @@
-name: Process
+name: Free Nodes Aggregator
+
+# 每 6 小时跑一次（UTC 时间，17 分是为了错开 GitHub 的整点高峰）
 on:
   schedule:
-    - cron: "05 03 * * *"
-    - cron: "05 11 * * *"
+    - cron: "17 */6 * * *"
   workflow_dispatch:
+    inputs:
+      skip_alive_check:
+        description: "跳过节点存活检测（更快，但质量差）"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# 同一时间只允许一个实例，避免两次运行互相覆盖 Gist
+concurrency:
+  group: free-nodes-aggregator
+  cancel-in-progress: false
 
 env:
-  # time zone
   TZ: Asia/Shanghai
-
-  # network proxy aggregate config
-  SUBSCRIBE_CONF: ${{ secrets.SUBSCRIBE_CONF }}
-
-  # token
+  PYTHONUNBUFFERED: "1"
+  # 配置文件随仓库提交，里面没有密钥，只有 Gist ID 之类的公开信息
+  SUBSCRIBE_CONF: subscribe/free-config.json
+  # 唯一真正的密钥：GitHub PAT（repo + gist + workflow 权限），存在 Secrets 里
   PUSH_TOKEN: ${{ secrets.PUSH_TOKEN }}
-
-  # not check connective
-  SKIP_ALIVE_CHECK: ${{ vars.SKIP_ALIVE_CHECK }}
-
-  # skip remark
-  SKIP_REMARK: ${{ vars.SKIP_REMARK }}
-
-  # workflow mode
-  WORKFLOW_MODE: ${{ vars.WORKFLOW_MODE }}
-
-  # include spwcial protocols, such vless hysteria2 and hysteria
-  ENABLE_SPECIAL_PROTOCOLS: ${{ vars.ENABLE_SPECIAL_PROTOCOLS }}
+  # GitHub 爬虫用同一个 PAT 提升 API 配额
+  GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+  WORKFLOW_MODE: "0"
+  ENABLE_SPECIAL_PROTOCOLS: "true"
+  SKIP_ALIVE_CHECK: ${{ github.event.inputs.skip_alive_check == 'true' && 'true' || 'false' }}
 
 jobs:
-  process:
+  aggregate:
+    name: Crawl & aggregate free nodes
     runs-on: ubuntu-latest
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
@@ -37,18 +44,40 @@ jobs:
         with:
           ref: main
 
-      - name: Prepare
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
-          architecture: "x64"
-          cache: "pip"
+          python-version: "3.11"
+          architecture: x64
+          cache: pip
+          cache-dependency-path: requirements.txt
 
-      - name: Install
-        run: pip3 install -r requirements.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: Process
-        run: python -u subscribe/process.py --overwrite
+      - name: Backup current gist
+        run: python .github/scripts/guard.py backup
 
-      - name: Timestamp
-        run: date
+      - name: Crawl and aggregate
+        run: python -u subscribe/process.py -s "$SUBSCRIBE_CONF" --overwrite -n 64 -t 6000
+        timeout-minutes: 75
+
+      - name: Verify generated subscriptions
+        run: python .github/scripts/guard.py verify
+
+      - name: Restore previous gist on failure
+        if: failure()
+        run: python .github/scripts/guard.py restore
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### 运行结果：${{ job.status }}"
+            echo ""
+            echo "- 触发方式：${{ github.event_name }}"
+            echo "- 提交：${{ github.sha }}"
+            echo "- 时间：$(date '+%Y-%m-%d %H:%M:%S %Z')"
+          } >> "$GITHUB_STEP_SUMMARY"
