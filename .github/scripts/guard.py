@@ -19,6 +19,7 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 API = "https://api.github.com/gists"
@@ -188,6 +189,206 @@ def kind_of(filename: str) -> str:
     return ""
 
 
+# ---------------------------------------------------------------- 后处理：排序 + 策略组
+# 越靠前的协议，在国内（尤其电信）越不容易被 DPI 识别阻断。
+TYPE_RANK = {
+    "vless": 0,
+    "trojan": 1,
+    "anytls": 2,
+    "vmess": 3,
+    "tuic": 4,
+    "hysteria2": 5,
+    "hysteria": 6,
+    "ss": 8,
+    "ssr": 9,
+}
+TLS_PORTS = {"8443", "2053", "2083", "2087", "2096", "2095"}
+GROUP_AUTO = "🚀 自动选择"
+GROUP_FALLBACK = "🔯 故障转移"
+GROUP_MANUAL = "🎯 手动选择"
+
+
+def decode_b64(text: str) -> str:
+    body = text.strip().replace("\n", "").replace("\r", "")
+    body = body.replace("-", "+").replace("_", "/")
+    return base64.b64decode(body + "=" * (-len(body) % 4)).decode("utf-8", "ignore")
+
+
+def port_rank(port: object) -> int:
+    value = str(port or "")
+    if value == "443":
+        return 0
+    if value in TLS_PORTS:
+        return 1
+    return 2
+
+
+def _ss_port(body: str) -> object:
+    main = body.split("#", 1)[0].split("?", 1)[0]
+    if "@" in main:
+        hostport = main.rsplit("@", 1)[1]
+    else:
+        try:
+            hostport = decode_b64(main).rsplit("@", 1)[-1]
+        except Exception:  # noqa: BLE001
+            return None
+    return hostport.rsplit(":", 1)[1] if ":" in hostport else None
+
+
+def parse_link(line: str) -> tuple[str, object]:
+    """返回 (协议, 端口)，解析失败时端口为 None。"""
+    if "://" not in line:
+        return "", None
+    scheme, body = line.split("://", 1)
+    scheme = scheme.lower()
+    if scheme == "vmess":
+        try:
+            return "vmess", json.loads(decode_b64(body)).get("port")
+        except Exception:  # noqa: BLE001
+            return "vmess", None
+    if scheme == "ssr":
+        try:
+            parts = decode_b64(body.rsplit("/", 1)[0]).split(":")
+            return "ssr", parts[1] if len(parts) > 1 else None
+        except Exception:  # noqa: BLE001
+            return "ssr", None
+    if scheme == "ss":
+        return "ss", _ss_port(body)
+    try:
+        return scheme, urllib.parse.urlsplit(line).port
+    except Exception:  # noqa: BLE001
+        return scheme, None
+
+
+def link_key(line: str) -> tuple:
+    kind, port = parse_link(line)
+    return (TYPE_RANK.get(kind, 7), port_rank(port))
+
+
+def build_clash(text: str, yaml) -> str:
+    data = yaml.safe_load(text)
+    if not isinstance(data, dict):
+        return text
+    proxies = [item for item in (data.get("proxies") or []) if isinstance(item, dict) and item.get("name")]
+    if len(proxies) < 2:
+        return text
+
+    ranked = sorted(
+        proxies,
+        key=lambda item: (TYPE_RANK.get(str(item.get("type", "")).lower(), 7), port_rank(item.get("port"))),
+    )
+    names = [item["name"] for item in ranked]
+    data["proxies"] = ranked
+    data["proxy-groups"] = [
+        {
+            "name": GROUP_AUTO,
+            "type": "url-test",
+            "url": "http://www.gstatic.com/generate_204",
+            "interval": 300,
+            "tolerance": 50,
+            "proxies": names,
+        },
+        {
+            "name": GROUP_FALLBACK,
+            "type": "fallback",
+            "url": "http://www.gstatic.com/generate_204",
+            "interval": 300,
+            "proxies": names,
+        },
+        {"name": GROUP_MANUAL, "type": "select", "proxies": [GROUP_AUTO, GROUP_FALLBACK, "DIRECT"] + names},
+    ]
+    data["rules"] = ["GEOIP,CN,DIRECT", f"MATCH,{GROUP_AUTO}"]
+    return yaml.dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False, width=10000)
+
+
+def build_v2ray(text: str) -> str:
+    raw = text.strip()
+    decoded = ""
+    try:
+        decoded = decode_b64(raw)
+    except Exception:  # noqa: BLE001
+        decoded = ""
+    if "://" not in decoded:
+        decoded = text
+
+    lines = [line.strip() for line in decoded.splitlines() if line.strip()]
+    if len(lines) < 2:
+        return text
+    ordered = sorted(lines, key=link_key)
+    if ordered == lines:
+        return text
+    return base64.b64encode("\n".join(ordered).encode("utf-8")).decode("ascii")
+
+
+def build_singbox(text: str) -> str:
+    data = json.loads(text)
+    outbounds = data.get("outbounds")
+    if not isinstance(outbounds, list) or len(outbounds) < 2:
+        return text
+
+    skip = {"selector", "urltest", "direct", "block", "dns"}
+    nodes, others = [], []
+    for item in outbounds:
+        if isinstance(item, dict) and item.get("type") not in skip:
+            nodes.append(item)
+        else:
+            others.append(item)
+
+    nodes.sort(key=lambda item: (TYPE_RANK.get(str(item.get("type", "")).lower(), 7), port_rank(item.get("server_port"))))
+    data["outbounds"] = nodes + others
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+def cmd_postprocess() -> int:
+    """把最可能在国内可用的节点排到前面，并给 Clash 订阅补上自动选择策略组。"""
+    try:
+        import yaml  # noqa: PLC0415
+    except ImportError:
+        yaml = None
+
+    by_gist: dict[str, dict[str, str]] = {}
+    for item in storage_items().values():
+        filename = item.get("filename", "")
+        kind = kind_of(filename)
+        if not kind:
+            continue
+        gist_id = item["gist_id"]
+        try:
+            content = fetch_gist(gist_id).get(filename, "")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[guard] 读取 {filename} 失败，跳过后处理：{exc}")
+            continue
+        if not content.strip():
+            continue
+
+        try:
+            if kind == "clash" and yaml is not None:
+                updated = build_clash(content, yaml)
+            elif kind == "v2ray":
+                updated = build_v2ray(content)
+            elif kind == "singbox":
+                updated = build_singbox(content)
+            else:
+                continue
+        except Exception as exc:  # noqa: BLE001
+            # 后处理失败不能影响主流程，保持原样即可
+            print(f"[guard] 后处理 {filename} 失败，保持原样：{exc}")
+            continue
+
+        if updated != content:
+            by_gist.setdefault(gist_id, {})[filename] = updated
+            print(f"[guard] {filename} 已按协议/端口重排")
+        else:
+            print(f"[guard] {filename} 无需重排")
+
+    for gist_id, payload in by_gist.items():
+        if not payload:
+            continue
+        request(f"{API}/{gist_id}", method="PATCH", payload={"files": {k: {"content": v} for k, v in payload.items()}})
+        print(f"[guard] 已写回 {gist_id}：{', '.join(payload)}")
+    return 0
+
+
 def count_by_kind(kind: str, content: str) -> int:
     if kind == "v2ray":
         return count_v2ray(content)
@@ -273,7 +474,13 @@ def cmd_restore() -> int:
 
 def main() -> int:
     action = sys.argv[1] if len(sys.argv) > 1 else ""
-    handlers = {"backup": cmd_backup, "normalize": cmd_normalize, "verify": cmd_verify, "restore": cmd_restore}
+    handlers = {
+        "backup": cmd_backup,
+        "normalize": cmd_normalize,
+        "postprocess": cmd_postprocess,
+        "verify": cmd_verify,
+        "restore": cmd_restore,
+    }
     if action not in handlers:
         print(__doc__)
         return 2
