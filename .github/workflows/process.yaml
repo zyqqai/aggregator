@@ -31,6 +31,8 @@ env:
   WORKFLOW_MODE: "0"
   ENABLE_SPECIAL_PROTOCOLS: "true"
   SKIP_ALIVE_CHECK: ${{ github.event.inputs.skip_alive_check == 'true' && 'true' || 'false' }}
+  # 订阅文件单独发到一个轻量仓库，jsDelivr 索引大仓库会很慢
+  PUBLISH_REPO: ${{ github.repository_owner }}/subs
 
 jobs:
   aggregate:
