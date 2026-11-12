@@ -73,6 +73,9 @@ jobs:
       - name: Verify generated subscriptions
         run: python .github/scripts/guard.py verify
 
+      - name: Publish to repo for jsDelivr
+        run: python .github/scripts/guard.py publish
+
       - name: Restore previous gist on failure
         if: failure()
         run: python .github/scripts/guard.py restore
