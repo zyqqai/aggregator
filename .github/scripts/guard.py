@@ -22,7 +22,7 @@ import urllib.request
 API = "https://api.github.com/gists"
 CONFIG = os.environ.get("SUBSCRIBE_CONF", "subscribe/free-config.json")
 BACKUP_DIR = os.path.join(os.environ.get("RUNNER_TEMP", "/tmp"), "aggregator-backup")
-THRESHOLD = {"v2ray": 20, "clash": 10, "singbox": 10}
+THRESHOLD = {"v2ray": 5, "clash": 10, "singbox": 5}
 
 
 def token() -> str:
@@ -123,28 +123,62 @@ def count_singbox(text: str) -> int:
     return sum(1 for item in outbounds if isinstance(item, dict) and item.get("type") not in ("selector", "urltest", "direct", "block", "dns"))
 
 
+def kind_of(filename: str) -> str:
+    name = filename.lower()
+    for kind in ("v2ray", "clash", "singbox"):
+        if kind in name:
+            return kind
+    return ""
+
+
+def count_by_kind(kind: str, content: str) -> int:
+    if kind == "v2ray":
+        return count_v2ray(content)
+    if kind == "clash":
+        return count_clash(content)
+    if kind == "singbox":
+        return count_singbox(content)
+    return 1 if content.strip() else 0
+
+
+def previous_counts() -> dict[str, int]:
+    """上一次成功发布的节点数（来自本次运行前的备份）。"""
+    prev: dict[str, int] = {}
+    if not os.path.isdir(BACKUP_DIR):
+        return prev
+    for name in os.listdir(BACKUP_DIR):
+        filename = name.split("__", 1)[-1]
+        kind = kind_of(filename)
+        if not kind:
+            continue
+        try:
+            with open(os.path.join(BACKUP_DIR, name), encoding="utf-8") as fp:
+                prev[kind] = max(prev.get(kind, 0), count_by_kind(kind, fp.read()))
+        except OSError:
+            continue
+    return prev
+
+
 def cmd_verify() -> int:
     failed = False
+    prev = previous_counts()
     for key, item in storage_items().items():
-        if key.startswith("crawled"):
+        if key.startswith("crawled") or key == "pluginstate":
             continue
         gist_id, filename = item["gist_id"], item.get("filename", "")
+        kind = kind_of(filename)
+        if not kind:
+            continue
         try:
             content = fetch_gist(gist_id).get(filename, "")
         except Exception as exc:  # noqa: BLE001
             print(f"[guard] 读取 {filename} 失败：{exc}")
             failed = True
             continue
-        if key.endswith("v2ray"):
-            count = count_v2ray(content)
-        elif key.endswith("clash"):
-            count = count_clash(content)
-        elif key.endswith("singbox"):
-            count = count_singbox(content)
-        else:
-            count = 1 if content.strip() else 0
-        limit = THRESHOLD.get(key.split("-")[-1], 1)
-        print(f"[guard] {filename}: {count} 个节点（阈值 {limit}），大小 {len(content)} 字节")
+        count = count_by_kind(kind, content)
+        old = prev.get(kind, 0)
+        limit = max(THRESHOLD[kind], int(old * 0.4))
+        print(f"[guard] {filename}: {count} 个节点（上次 {old}，下限 {limit}），{len(content)} 字节")
         if count < limit:
             failed = True
     if failed:
