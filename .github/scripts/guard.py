@@ -447,8 +447,9 @@ def cmd_verify() -> int:
 
 
 def repo_name() -> str:
-    value = (os.environ.get("GITHUB_REPOSITORY") or "").strip()
-    return value or "zyqqai/aggregator"
+    # 订阅文件单独放一个轻量仓库：上游 fork 有 800MB+，jsDelivr 索引大仓库会很慢
+    value = (os.environ.get("PUBLISH_REPO") or os.environ.get("GITHUB_REPOSITORY") or "").strip()
+    return value or "zyqqai/subs"
 
 
 def put_repo_file(repo: str, path: str, content: str, message: str) -> None:
@@ -472,6 +473,7 @@ def cmd_publish() -> int:
     Gist 本身没问题，但 gist.githubusercontent.com 在国内几乎不可直连。"""
     repo = repo_name()
     count = 0
+    paths = []
     for item in storage_items().values():
         filename = item.get("filename", "")
         if not kind_of(filename):
@@ -483,12 +485,23 @@ def cmd_publish() -> int:
             continue
         if not content.strip():
             continue
+        path = f"subscribe/output/{filename}"
         try:
-            put_repo_file(repo, f"subscribe/output/{filename}", content, f"chore: publish {filename}")
+            put_repo_file(repo, path, content, f"chore: publish {filename}")
             count += 1
+            paths.append(path)
         except Exception as exc:  # noqa: BLE001
             print(f"[guard] 发布 {filename} 失败：{exc}")
     print(f"[guard] 发布完成，{count} 个文件")
+
+    # jsDelivr 默认缓存 12 小时，主动清一次，让客户端尽快拿到新节点
+    for path in paths:
+        try:
+            with urllib.request.urlopen(f"https://purge.jsdelivr.net/gh/{repo}@main/{path}", timeout=30) as resp:
+                resp.read()
+            print(f"[guard] 已请求清除 CDN 缓存：{path}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[guard] 清除缓存失败（不影响订阅）：{exc}")
     return 0
 
 
