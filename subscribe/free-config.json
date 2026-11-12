@@ -128,8 +128,9 @@
             "list_only": true,
             "targets": {
                 "clash": "free-clash",
-                "v2ray": "free-v2ray",
-                "singbox": "free-singbox"
+                "v2ray": "free-v2ray2",
+                "singbox": "free-singbox",
+                "mixed": "free-v2ray"
             }
         }
     },
@@ -165,6 +166,11 @@
                 "username": "zyqqai",
                 "gist_id": "6dd682ceb71086a543387147fd4a0613",
                 "filename": "pluginstate.json"
+            },
+            "free-v2ray2": {
+                "username": "zyqqai",
+                "gist_id": "6dd682ceb71086a543387147fd4a0613",
+                "filename": "free-v2ray2.txt"
             }
         }
     }
