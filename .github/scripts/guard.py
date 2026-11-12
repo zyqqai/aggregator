@@ -485,7 +485,7 @@ def cmd_publish() -> int:
             continue
         if not content.strip():
             continue
-        path = f"subscribe/output/{filename}"
+        path = f"{os.environ.get('PUBLISH_PREFIX', '')}{filename}"
         try:
             put_repo_file(repo, path, content, f"chore: publish {filename}")
             count += 1
