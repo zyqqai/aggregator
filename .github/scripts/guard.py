@@ -108,10 +108,15 @@ def count_clash(text: str) -> int:
     try:
         import yaml  # noqa: PLC0415
 
-        data = yaml.safe_load(text) or {}
-        return len(data.get("proxies") or [])
+        data = yaml.safe_load(text)
+        if isinstance(data, dict):
+            return len(data.get("proxies") or [])
+        if isinstance(data, list):
+            # subconverter 的 list 模式会直接输出代理数组
+            return len(data)
+        return 0
     except Exception:  # noqa: BLE001
-        return text.count("- name:")
+        return max(text.count("- name:"), text.count("- {name"))
 
 
 def count_singbox(text: str) -> int:
